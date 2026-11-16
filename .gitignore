@@ -2,3 +2,5 @@
 __pycache__/
 *.png
 lora-test/
+data/
+lora-test*/

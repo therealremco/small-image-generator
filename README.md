@@ -7,7 +7,9 @@ How small (in GB on disk) can a prompt-to-image generator get, with cartoon styl
 | File | Purpose |
 |---|---|
 | `generate.py` | CLI: prompt -> image, with a `--model` switch and optional `--lora` |
-| `train_lora.py` | Trains a LoRA on `segmind/tiny-sd` (UNet attention layers only) |
+| `train_lora.py` | Trains a LoRA on `segmind/tiny-sd` (UNet attention layers only), from the HF dataset or a local image+caption folder (`--data-dir`) |
+| `export_dataset.py` | Exports the HF dataset to `X.png` + `X.blip.txt` files in a folder |
+| `caption.py` | Re-captions a folder with Florence-2, writing `X.txt` next to each image |
 | `pyproject.toml`, `uv.lock` | Dependencies, managed with [uv](https://docs.astral.sh/uv/) |
 
 ## Quick start
@@ -48,6 +50,18 @@ Dataset: [`Norod78/cartoon-blip-captions`](https://huggingface.co/datasets/Norod
 `train_lora.py` loads the base model in fp32, freezes it, and trains rank-16 LoRA layers on `to_q`, `to_k`, `to_v` and `to_out` (1.73M parameters, ~7 MB adapter). Each caption gets `, cartoon style` appended.
 
 Options: `--base`, `--dataset`, `--out`, `--steps`, `--batch-size`, `--lr`, `--rank`, `--size`, `--seed`, `--save-every`.
+
+### Better captions (optional)
+
+The BLIP captions are weak, so the repo can re-caption the images locally with Florence-2 (`florence-community/Florence-2-large`, 1.55 GB download, about 0.7 s/image on a Mac):
+
+```bash
+uv run export_dataset.py --out data/cartoon        # X.png + X.blip.txt
+uv run caption.py data/cartoon                     # writes X.txt (resumable)
+uv run train_lora.py --data-dir data/cartoon --out lora-florence
+```
+
+`caption.py` strips the "The image shows" opener and keeps the first two sentences (`--max-sentences`), because later sentences are often hallucinated ("available for free download on PC"). Florence also names franchises and characters, sometimes wrongly. Try a small batch first (`--limit 8`) and read the captions before the full run. `train_lora.py` uses only images that have a `.txt` file.
 
 On an Apple-silicon Mac (MPS) a step at batch size 4 takes about 1.9 s. A 20-step smoke test works there. Full runs belong on the GB10.
 
@@ -96,6 +110,17 @@ uv run train_lora.py --steps 3000 --batch-size 8 --out lora-cartoon
 - With spare GPU memory, try `--batch-size 16 --lr 2e-4`.
 - To keep it running after you log out: `nohup uv run train_lora.py --steps 3000 --batch-size 8 --out lora-cartoon > train.log 2>&1 &`, then `tail -f train.log`.
 - Watch the loss. It is noisy, so judge by the images, not the number.
+
+### 4b. Optional: train on Florence-2 captions
+
+```bash
+uv run export_dataset.py --out data/cartoon
+uv run caption.py data/cartoon --limit 8           # read the .txt files before the full run
+uv run caption.py data/cartoon                     # resumable; --batch-size 32 is fine on the GB10
+uv run train_lora.py --data-dir data/cartoon --steps 3000 --batch-size 8 --out lora-florence
+```
+
+Compare `lora-cartoon` (BLIP captions) and `lora-florence` in step 5, using the same prompt and seed.
 
 ### 5. Compare checkpoints
 

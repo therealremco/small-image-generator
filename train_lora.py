@@ -16,6 +16,7 @@ from datasets import load_dataset
 from diffusers import AutoencoderKL, DDPMScheduler, StableDiffusionPipeline, UNet2DConditionModel
 from diffusers.utils import convert_state_dict_to_diffusers
 from peft import LoraConfig, get_peft_model_state_dict
+from PIL import Image
 from torchvision import transforms
 from transformers import CLIPTextModel, CLIPTokenizer
 
@@ -34,6 +35,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--base", default="segmind/tiny-sd")
     ap.add_argument("--dataset", default="Norod78/cartoon-blip-captions")
+    ap.add_argument("--data-dir", type=Path, help="folder of X.png + X.txt pairs; overrides --dataset")
     ap.add_argument("--out", type=Path, default=Path("lora-cartoon"))
     ap.add_argument("--steps", type=int, default=2000)
     ap.add_argument("--batch-size", type=int, default=4)
@@ -66,7 +68,23 @@ def main() -> None:
     print(f"trainable params: {sum(p.numel() for p in params) / 1e6:.2f}M")
     opt = torch.optim.AdamW(params, lr=args.lr, weight_decay=1e-2)
 
-    ds = load_dataset(args.dataset, split="train")
+    if args.data_dir:
+        # Folder of X.png + X.txt pairs (see export_dataset.py / caption.py); images without a .txt are skipped.
+        pairs = [(p, p.with_suffix(".txt")) for p in sorted(args.data_dir.glob("*.png"))]
+        pairs = [(img, txt) for img, txt in pairs if txt.exists()]
+        if not pairs:
+            raise SystemExit(f"no image+caption pairs in {args.data_dir}")
+        print(f"{len(pairs)} image+caption pairs from {args.data_dir}")
+
+        def sample():
+            img, txt = random.choice(pairs)
+            return {"image": Image.open(img), "text": txt.read_text().strip()}
+    else:
+        ds = load_dataset(args.dataset, split="train")
+
+        def sample():
+            return ds[random.randrange(len(ds))]
+
     tf = transforms.Compose([
         transforms.Resize(args.size, interpolation=transforms.InterpolationMode.BILINEAR),
         transforms.CenterCrop(args.size),
@@ -76,7 +94,7 @@ def main() -> None:
     ])
 
     def batch(n: int):
-        rows = [ds[random.randrange(len(ds))] for _ in range(n)]
+        rows = [sample() for _ in range(n)]
         pix = torch.stack([tf(r["image"].convert("RGB")) for r in rows]).to(device)
         ids = tokenizer([r["text"] + SUFFIX for r in rows], padding="max_length", truncation=True,
                         max_length=tokenizer.model_max_length, return_tensors="pt").input_ids.to(device)
