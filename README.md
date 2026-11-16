@@ -58,7 +58,7 @@ The GB10 (DGX Spark-class) is aarch64 Linux with a Blackwell GPU. The CUDA steps
 ### 1. Get the project onto the GB10
 
 ```bash
-git clone <this-repo-url> small-image-generator && cd small-image-generator
+git clone https://github.com/therealremco/small-image-generator.git small-image-generator && cd small-image-generator
 ```
 
 Or copy it with `rsync` and exclude the large or local-only folders:
